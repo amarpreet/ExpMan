@@ -1,9 +1,10 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import pandas as pd
 import os
 from tempfile import NamedTemporaryFile
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -36,9 +37,123 @@ def upload_file(
         hist_path = os.path.join(UPLOAD_DIR, hist_file.filename)
         with open(hist_path, "wb") as f:
             f.write(hist_file.file.read())
-    # TODO: Parse, map fields, categorize, and output CSV
-    # For now, just return file info
-    return {"bank_file": bank_file.filename, "hist_file": hist_file.filename if hist_file else None, "account_name": account_name, "reconciled": reconciled}
+
+    # --- Step 1: Parse the uploaded bank file and detect columns ---
+    try:
+        def find_header_row(data, max_scan=10):
+            # Find the first row with mostly non-empty, unique values
+            for i, row in enumerate(data[:max_scan]):
+                non_empty = [cell for cell in row if str(cell).strip() != '']
+                if len(non_empty) >= max(3, len(row)//2) and len(set(non_empty)) == len(non_empty):
+                    return i
+            return 0  # fallback to first row
+
+        if bank_file.filename.lower().endswith(".csv"):
+            import csv
+            with open(bank_path, newline='', encoding='utf-8') as f:
+                reader = list(csv.reader(f))
+            header_row = find_header_row(reader)
+            df = pd.DataFrame(reader[header_row+1:], columns=reader[header_row])
+        elif bank_file.filename.lower().endswith(".xlsx"):
+            import openpyxl
+            wb = openpyxl.load_workbook(bank_path, read_only=True)
+            ws = wb.active
+            data = list(ws.iter_rows(values_only=True))
+            header_row = find_header_row(data)
+            df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
+        elif bank_file.filename.lower().endswith(".xls"):
+            import pyexcel as pe
+            sheet = pe.get_sheet(file_name=bank_path)
+            data = sheet.to_array()
+            header_row = find_header_row(data)
+            df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV, XLS, or XLSX file.")
+    except Exception as e:
+        print(f"Error reading file: {e}")  # Print error to server log
+        raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+
+    # Get column names and a preview (first 5 rows)
+    columns = list(df.columns)
+    preview = df.head(5).to_dict(orient="records")
+
+    return {
+        "bank_file": bank_file.filename,
+        "hist_file": hist_file.filename if hist_file else None,
+        "account_name": account_name,
+        "reconciled": reconciled,
+        "columns": columns,
+        "preview": preview
+    }
+
+class OutputRequest(BaseModel):
+    bank_file: str
+    account_name: str
+    reconciled: str
+    date_col: str
+    desc_col: str
+    amt_col: str
+
+@app.post("/generate_output/")
+def generate_output(req: OutputRequest):
+    bank_path = os.path.join(UPLOAD_DIR, req.bank_file)
+    # Re-read the file using the same logic as before
+    try:
+        def find_header_row(data, max_scan=10):
+            for i, row in enumerate(data[:max_scan]):
+                non_empty = [cell for cell in row if str(cell).strip() != '']
+                if len(non_empty) >= max(3, len(row)//2) and len(set(non_empty)) == len(non_empty):
+                    return i
+            return 0
+        if req.bank_file.lower().endswith(".csv"):
+            import csv
+            with open(bank_path, newline='', encoding='utf-8') as f:
+                reader = list(csv.reader(f))
+            header_row = find_header_row(reader)
+            df = pd.DataFrame(reader[header_row+1:], columns=reader[header_row])
+        elif req.bank_file.lower().endswith(".xlsx"):
+            import openpyxl
+            wb = openpyxl.load_workbook(bank_path, read_only=True)
+            ws = wb.active
+            data = list(ws.iter_rows(values_only=True))
+            header_row = find_header_row(data)
+            df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
+        elif req.bank_file.lower().endswith(".xls"):
+            import pyexcel as pe
+            sheet = pe.get_sheet(file_name=bank_path)
+            data = sheet.to_array()
+            header_row = find_header_row(data)
+            df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload a CSV, XLS, or XLSX file.")
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        raise HTTPException(status_code=400, detail=f"Error reading file: {str(e)}")
+
+    # Prepare output DataFrame
+    output = pd.DataFrame()
+    output["Account Name"] = req.account_name
+    # Date: try to parse and format as dd/mm/yyyy
+    output["Date"] = pd.to_datetime(df[req.date_col], errors='coerce').dt.strftime('%d/%m/%Y')
+    output["Details"] = df[req.desc_col]  # Placeholder, can be improved with categorization
+    output["Category"] = ""  # Placeholder, can be improved with categorization
+    output["Notes"] = df[req.desc_col]
+    output["Cheque/Check Number"] = ""
+    # Amount: ensure negative for spending, positive for credit
+    def parse_amount(val):
+        try:
+            return float(str(val).replace(',', '').replace(' ', ''))
+        except:
+            return 0.0
+    output["Amount"] = df[req.amt_col].apply(parse_amount)
+    output["Reconciled"] = req.reconciled
+    # Sort by date
+    output = output.sort_values(by="Date")
+    # Save to CSV (no header, 8 columns)
+    filename = f"output_{os.path.splitext(req.bank_file)[0]}.csv"
+    output_path = os.path.join(OUTPUT_DIR, filename)
+    output.to_csv(output_path, index=False, header=False)
+    return {"output_file": filename}
 
 @app.get("/download/{filename}")
 def download_file(filename: str):
