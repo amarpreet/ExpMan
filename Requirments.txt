@@ -1,0 +1,84 @@
+# Expense Tracker Requirements
+
+## 1. Project Overview
+- **Project Name:** Expense Tracker
+- **Description:** A program that consolidates various bank statement formats into a unified output compatible with accounting software.
+- **Goals/Objectives:**
+    - Automate manual consolidation of bank statements.
+    - Ensure output compatibility with accounting software.
+    - Minimize manual intervention.
+    - Provide clear error reporting.
+    - Maintain data integrity and accuracy.
+
+## 2. Functional Requirements
+
+### 2.1 Input format : 
+
+- The input file can be in one of the following formats: .CSV, .XLS, or .XLSX.
+- The input file will always contain at least the following three pecies of information:
+    1. Date of transaction( may have different formats but usually follows dd mm yy format )
+    2. Description of the transaction
+    3. Amount of the transaction
+- Additional fields may be present but are not required.
+- The program must detect and handle the input format automatically.
+- The program should validate that the required fields are present in the input file.
+- If the program requires it can display the columsn indentified and let the user chose which 3 column are required. 
+
+
+
+### 2.2 Categorization Automation
+- This needs to be done using some intelligent analysis .
+- user and share a file along with the input file that has the same format as the output file, using which the smart categorization can be made . 
+- Suggest values for two categorization fields based on historical data.
+- Learn from user overrides to improve future suggestions.
+- Allow users to review and override suggestions before finalizing.
+
+
+### 2.3 User Interface
+- Input Field to enter/select Account Name to be used in the output file .
+- INput field to enter the Reconciled output field value ( defaulted to 'Y' )
+- Input field to browse  the bank file. 
+- Input filed to browse and select the historical categorization file . 
+- Propose and allow editing of field mappings before displaying the data from the input file .
+- Display imported data in a table format showing clearly that the 3 mandatory fields from the input file are selected correctly. 
+- once the imported data is confirmed the user will have a button to begein conversion to output format. 
+- display the output and allow the user to download the output file. 
+
+
+### 2.4 Output Format
+
+- transaction data to a CSV file (no header, 8 columns).
+- Columns:
+    1. Account Name (Input field on the UI )
+    2. Date (consistent format per file: dd/mm/yyyy   )
+    3. Details (to be poposed based on the notes data and by looking at the past records )
+    4. Category (to be poposed based on the description of the transaction and  the past categroization data)
+    5. Notes ( this is the description of the transaction taken from the input file )
+    6. Cheque/Check Number (Blank)
+    7. Amount (negative for spending)
+    8. Reconciled ('Y' or 'N')
+- All rows must be in ascending date order.
+- All debit transactions should have -ve amounts and credit transaction have + amounts. 
+- Validate input for column count, date format, and required fields.
+
+## 3. Non-Functional Requirements
+- Error reporting for unsupported/malformed files. e.g. in case the program is unable to indetify the 3 fields requied in the input file. 
+- Data integrity and accuracy.
+- Usability: Simple, clear UI.
+
+## 4. User Stories & Acceptance Criteria
+- As a user, I want to upload a bank statement in various formats (CSV, XLS, XLSX), map the required fields, and receive a unified output compatible with my accounting software.
+    - **Acceptance:** User can upload a file, review and adjust field mappings, confirm the selection of the three mandatory fields (date, description, amount), view the imported data in a table, and download the converted output in the required CSV format.
+
+
+## 5. Example ouput Row
+```
+Mastercard,28/05/2010,Apple,Gadgets,iPad,,-429.00,Y
+```
+
+## 6. Error handling 
+
+- All errors (e.g., unsupported file format, missing required fields, validation failures) must be clearly displayed to the user on the UI.
+- Error messages should be descriptive and guide the user to resolve the issue.
+- The UI should prevent further processing until errors are resolved.
+
