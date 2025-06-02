@@ -1,8 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-import pandas as pd
 import os
+import pandas as pd
+import csv
+import openpyxl
+import pyexcel as pe
 from tempfile import NamedTemporaryFile
 from pydantic import BaseModel
 
@@ -49,20 +52,17 @@ def upload_file(
             return 0  # fallback to first row
 
         if bank_file.filename.lower().endswith(".csv"):
-            import csv
             with open(bank_path, newline='', encoding='utf-8') as f:
                 reader = list(csv.reader(f))
             header_row = find_header_row(reader)
             df = pd.DataFrame(reader[header_row+1:], columns=reader[header_row])
         elif bank_file.filename.lower().endswith(".xlsx"):
-            import openpyxl
             wb = openpyxl.load_workbook(bank_path, read_only=True)
             ws = wb.active
             data = list(ws.iter_rows(values_only=True))
             header_row = find_header_row(data)
             df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
         elif bank_file.filename.lower().endswith(".xls"):
-            import pyexcel as pe
             sheet = pe.get_sheet(file_name=bank_path)
             data = sheet.to_array()
             header_row = find_header_row(data)
@@ -106,20 +106,17 @@ def generate_output(req: OutputRequest):
                     return i
             return 0
         if req.bank_file.lower().endswith(".csv"):
-            import csv
             with open(bank_path, newline='', encoding='utf-8') as f:
                 reader = list(csv.reader(f))
             header_row = find_header_row(reader)
             df = pd.DataFrame(reader[header_row+1:], columns=reader[header_row])
         elif req.bank_file.lower().endswith(".xlsx"):
-            import openpyxl
             wb = openpyxl.load_workbook(bank_path, read_only=True)
             ws = wb.active
             data = list(ws.iter_rows(values_only=True))
             header_row = find_header_row(data)
             df = pd.DataFrame(data[header_row+1:], columns=data[header_row])
         elif req.bank_file.lower().endswith(".xls"):
-            import pyexcel as pe
             sheet = pe.get_sheet(file_name=bank_path)
             data = sheet.to_array()
             header_row = find_header_row(data)
@@ -132,32 +129,36 @@ def generate_output(req: OutputRequest):
 
     # Prepare output DataFrame
     output = pd.DataFrame()
-    output["Account Name"] = req.account_name
-    # Date: try to parse and format as dd/mm/yyyy
-    output["Date"] = pd.to_datetime(df[req.date_col], errors='coerce').dt.strftime('%d/%m/%Y')
-    output["Details"] = df[req.desc_col]  # Placeholder, can be improved with categorization
-    output["Category"] = ""  # Placeholder, can be improved with categorization
+    # 1. Account Name: fill with the input field value for all rows
+    output["Account Name"] = [req.account_name] * len(df)
+    # 2. Date: try to parse and format as dd/mm/yyyy
+    output["Date"] = pd.to_datetime(df[req.date_col], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
+    # 3. Details: leave blank for now (to be filled by categorization later)
+    output["Details"] = ""
+    # 4. Category: leave blank for now (to be filled by categorization later)
+    output["Category"] = ""
+    # 5. Notes: description field
     output["Notes"] = df[req.desc_col]
+    # 6. Cheque/Check Number: blank
     output["Cheque/Check Number"] = ""
-    # Amount: ensure negative for spending, positive for credit
-    def parse_amount(val):
-        try:
-            return float(str(val).replace(',', '').replace(' ', ''))
-        except:
-            return 0.0
-    output["Amount"] = df[req.amt_col].apply(parse_amount)
-    output["Reconciled"] = req.reconciled
-    # Sort by date
+    # 7. Amount: convert to numeric, forcing errors to NaN
+    output["Amount"] = pd.to_numeric(df[req.amt_col], errors='coerce')
+    # 8. Reconciled: fill with the input field value for all rows
+    output["Reconciled"] = [req.reconciled] * len(df)
+
+    # Sort by date ascending
     output = output.sort_values(by="Date")
-    # Save to CSV (no header, 8 columns)
-    filename = f"output_{os.path.splitext(req.bank_file)[0]}.csv"
-    output_path = os.path.join(OUTPUT_DIR, filename)
-    output.to_csv(output_path, index=False, header=False)
-    return {"output_file": filename}
+
+    # Save the output file as CSV (no header)
+    output_file = f"output_{req.account_name}.csv"
+    output_file_path = os.path.join(OUTPUT_DIR, output_file)
+    output.to_csv(output_file_path, index=False, header=False)
+
+    return {"output_file": output_file}
 
 @app.get("/download/{filename}")
 def download_file(filename: str):
     file_path = os.path.join(OUTPUT_DIR, filename)
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="File not found.")
     return FileResponse(file_path, media_type='text/csv', filename=filename)

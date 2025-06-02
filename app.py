@@ -32,13 +32,23 @@ def show_field_mapping_and_output(columns, bank_file, account_name, reconciled, 
             }
             response = requests.post("http://localhost:8000/generate_output/", json=payload)
             if response.status_code == 200:
-                output_file = response.json().get("output_file")
-                st.success("Output CSV generated!")
-                encoded_file = urllib.parse.quote(output_file)
-                download_url = f"http://localhost:8000/download/{encoded_file}"
-                st.markdown(f"[Download Output CSV]({download_url})")
+                json_data = response.json()
+                if json_data and isinstance(json_data, dict):
+                    output_file = json_data.get("output_file")
+                    if output_file:
+                        st.success("Output CSV generated!")
+                        encoded_file = urllib.parse.quote(output_file)
+                        download_url = f"http://localhost:8000/download/{encoded_file}"
+                        st.markdown(f"[Download Output CSV]({download_url})")
+                    else:
+                        st.error("No output file returned by backend.")
+                else:
+                    st.error("Unexpected response from backend.")
             else:
-                st.error(f"Error generating output: {response.text}")
+                try:
+                    st.error(f"Error generating output: {response.text}")
+                except Exception:
+                    st.error("Error generating output and could not parse error details.")
 
 # Main UI logic
 st.title("Expense Tracker")
