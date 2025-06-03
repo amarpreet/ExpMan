@@ -28,7 +28,8 @@ def show_field_mapping_and_output(columns, bank_file, account_name, reconciled, 
                 "reconciled": reconciled,
                 "date_col": st.session_state['date_col'],
                 "desc_col": st.session_state['desc_col'],
-                "amt_col": st.session_state['amt_col']
+                "amt_col": st.session_state['amt_col'],
+                "hist_file": st.session_state.get('hist_file', None)
             }
             response = requests.post("http://localhost:8000/generate_output/", json=payload)
             if response.status_code == 200:
@@ -79,6 +80,10 @@ if st.button("Upload and Process", key="upload_and_process_btn"):
             st.session_state['mapping_confirmed'] = False
             st.session_state['show_mapping'] = True
             st.session_state['show_output'] = False
+            if hist_file:
+                st.session_state['hist_file'] = hist_file.name
+            else:
+                st.session_state['hist_file'] = None
             st.write("### Detected Columns:")
             st.write(result.get("columns", []))
             st.write("### Data Preview:")
